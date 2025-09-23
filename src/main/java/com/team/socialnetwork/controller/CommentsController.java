@@ -1,5 +1,22 @@
 package com.team.socialnetwork.controller;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.team.socialnetwork.dto.MessageResponse;
 import com.team.socialnetwork.dto.SafeUser;
 import com.team.socialnetwork.entity.Comment;
@@ -8,16 +25,7 @@ import com.team.socialnetwork.entity.User;
 import com.team.socialnetwork.repository.CommentLikeRepository;
 import com.team.socialnetwork.repository.CommentRepository;
 import com.team.socialnetwork.repository.UserRepository;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import com.team.socialnetwork.service.NotificationService;
 
 @RestController
 @RequestMapping("/comments")
@@ -26,13 +34,16 @@ public class CommentsController {
     private final CommentRepository commentRepository;
     private final UserRepository userRepository;
     private final CommentLikeRepository commentLikeRepository;
+    private final NotificationService notificationService;
 
     public CommentsController(CommentRepository commentRepository,
                               UserRepository userRepository,
-                              CommentLikeRepository commentLikeRepository) {
+                              CommentLikeRepository commentLikeRepository,
+                              NotificationService notificationService) {
         this.commentRepository = commentRepository;
         this.userRepository = userRepository;
         this.commentLikeRepository = commentLikeRepository;
+        this.notificationService = notificationService;
     }
 
     @org.springframework.transaction.annotation.Transactional
@@ -63,6 +74,10 @@ public class CommentsController {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.FORBIDDEN, "You can only delete your own comments");
         }
+        
+        // Limpiar notificaciones relacionadas con este comentario antes de eliminarlo
+        notificationService.cleanupNotificationsForComment(commentId);
+        
         // Remove likes first to avoid FK constraint issues (no cascade mapping on comment likes from entities)
         commentLikeRepository.deleteByCommentId(commentId);
         commentRepository.delete(comment);
@@ -151,6 +166,16 @@ public class CommentsController {
                     org.springframework.http.HttpStatus.CONFLICT, "Already liked");
         }
         commentLikeRepository.save(new CommentLike(user, comment));
+        
+        // Crear notificación para el autor del comentario (si no es el mismo que da like)
+        User commentAuthor = comment.getAuthor();
+        if (!commentAuthor.getId().equals(user.getId())) {
+            notificationService.createAndSendNotification(
+                    commentAuthor, user, 
+                    com.team.socialnetwork.entity.Notification.NotificationType.COMMENT_LIKE, 
+                    comment.getPost(), comment);
+        }
+        
         return ResponseEntity.ok(new MessageResponse("Comment liked successfully"));
     }
 
@@ -180,6 +205,14 @@ public class CommentsController {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.CONFLICT, "Not liked yet");
         }
+        
+        // Eliminar notificación de like en comentario si existe
+        User commentAuthor = comment.getAuthor();
+        if (!commentAuthor.getId().equals(user.getId())) {
+            notificationService.removeCommentLikeNotification(
+                    commentAuthor.getId(), user.getId(), commentId);
+        }
+        
         return ResponseEntity.ok(new MessageResponse("Comment unliked successfully"));
     }
 

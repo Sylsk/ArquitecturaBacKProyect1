@@ -25,6 +25,7 @@ import com.team.socialnetwork.repository.CommentRepository;
 import com.team.socialnetwork.repository.PostLikeRepository;
 import com.team.socialnetwork.repository.PostRepository;
 import com.team.socialnetwork.repository.UserRepository;
+import com.team.socialnetwork.service.NotificationService;
 
 import jakarta.validation.Valid;
 
@@ -36,13 +37,16 @@ public class PostsController {
     private final UserRepository userRepository;
     private final CommentRepository commentRepository;
     private final PostLikeRepository postLikeRepository;
+    private final NotificationService notificationService;
 
     public PostsController(PostRepository postRepository, UserRepository userRepository,
-                           CommentRepository commentRepository, PostLikeRepository postLikeRepository) {
+                           CommentRepository commentRepository, PostLikeRepository postLikeRepository,
+                           NotificationService notificationService) {
         this.postRepository = postRepository;
         this.userRepository = userRepository;
         this.commentRepository = commentRepository;
         this.postLikeRepository = postLikeRepository;
+        this.notificationService = notificationService;
     }
 
     @PostMapping
@@ -88,6 +92,13 @@ public class PostsController {
 
         Comment comment = new Comment(request.getText(), post, author);
         commentRepository.save(comment);
+        
+        // Crear notificación para el autor del post (si no es el mismo que comenta)
+        if (!postAuthor.getId().equals(author.getId())) {
+            notificationService.createAndSendNotification(
+                    postAuthor, author, com.team.socialnetwork.entity.Notification.NotificationType.COMMENT, post, comment);
+        }
+        
         return ResponseEntity.ok(new com.team.socialnetwork.dto.MessageResponse("Comment created successfully"));
     }
 
@@ -175,6 +186,10 @@ public class PostsController {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.FORBIDDEN, "You can only delete your own posts");
         }
+        
+        // Limpiar notificaciones relacionadas con este post antes de eliminarlo
+        notificationService.cleanupNotificationsForPost(id);
+        
         postRepository.delete(post);
         return ResponseEntity.ok(new com.team.socialnetwork.dto.MessageResponse("Post deleted successfully"));
     }
@@ -275,6 +290,14 @@ public class PostsController {
                     org.springframework.http.HttpStatus.CONFLICT, "Already liked");
         }
         postLikeRepository.save(new PostLike(user, post));
+        
+        // Crear notificación para el autor del post (si no es el mismo que da like)
+        User postOwner = post.getAuthor();
+        if (!postOwner.getId().equals(user.getId())) {
+            notificationService.createAndSendNotification(
+                    postOwner, user, com.team.socialnetwork.entity.Notification.NotificationType.POST_LIKE, post);
+        }
+        
         return ResponseEntity.ok(new com.team.socialnetwork.dto.MessageResponse("Post liked successfully"));
     }
 
@@ -302,6 +325,15 @@ public class PostsController {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.CONFLICT, "Not liked yet");
         }
+        
+        // Eliminar notificación de like si existe
+        User postOwner = post.getAuthor();
+        if (!postOwner.getId().equals(user.getId())) {
+            notificationService.removeNotification(
+                    postOwner.getId(), user.getId(), 
+                    com.team.socialnetwork.entity.Notification.NotificationType.POST_LIKE, postId);
+        }
+        
         return ResponseEntity.ok(new com.team.socialnetwork.dto.MessageResponse("Post unliked successfully"));
     }
 

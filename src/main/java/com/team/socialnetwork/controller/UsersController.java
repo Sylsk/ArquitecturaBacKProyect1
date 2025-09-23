@@ -29,6 +29,7 @@ import com.team.socialnetwork.repository.CommentRepository;
 import com.team.socialnetwork.repository.FollowRequestRepository;
 import com.team.socialnetwork.repository.PostRepository;
 import com.team.socialnetwork.repository.UserRepository;
+import com.team.socialnetwork.service.NotificationService;
 
 import jakarta.validation.Valid;
 
@@ -41,16 +42,19 @@ public class UsersController {
     private final PostRepository postRepository;
     private final CommentLikeRepository commentLikeRepository;
     private final FollowRequestRepository followRequestRepository;
+    private final NotificationService notificationService;
 
     public UsersController(UserRepository userRepository, PasswordEncoder passwordEncoder,
                            PostRepository postRepository, CommentRepository commentRepository,
                            CommentLikeRepository commentLikeRepository,
-                           FollowRequestRepository followRequestRepository) {
+                           FollowRequestRepository followRequestRepository,
+                           NotificationService notificationService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.postRepository = postRepository;
         this.commentLikeRepository = commentLikeRepository;
         this.followRequestRepository = followRequestRepository;
+        this.notificationService = notificationService;
     }
 
     // Update my visibility (public/private)
@@ -137,6 +141,11 @@ public class UsersController {
         } else {
             me.getFollowing().add(target);
             userRepository.save(me);
+            
+            // Crear notificación de follow
+            notificationService.createAndSendNotification(
+                    target, me, com.team.socialnetwork.entity.Notification.NotificationType.FOLLOW);
+            
             return ResponseEntity.ok(new com.team.socialnetwork.dto.MessageResponse("Followed successfully"));
         }
     }
@@ -170,6 +179,11 @@ public class UsersController {
         }
         me.getFollowing().remove(target);
         userRepository.save(me);
+        
+        // Eliminar notificación de follow
+        notificationService.removeFollowNotification(
+                target.getId(), me.getId(), com.team.socialnetwork.entity.Notification.NotificationType.FOLLOW);
+        
         return ResponseEntity.ok(new com.team.socialnetwork.dto.MessageResponse("Unfollowed successfully"));
     }
 
@@ -196,6 +210,11 @@ public class UsersController {
         // Create following relation
         follower.getFollowing().add(me);
         userRepository.save(follower);
+        
+        // Crear notificación de follow request aprobado
+        notificationService.createAndSendNotification(
+                follower, me, com.team.socialnetwork.entity.Notification.NotificationType.FOLLOW_REQUEST_APPROVED);
+        
         return ResponseEntity.ok(new com.team.socialnetwork.dto.MessageResponse("Follow request approved"));
     }
 

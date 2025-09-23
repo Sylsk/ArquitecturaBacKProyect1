@@ -38,9 +38,10 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         
-        // Permitir solo tu frontend específico
-        configuration.setAllowedOrigins(Arrays.asList(
-            "http://localhost:5173"
+        // Permitir orígenes específicos para desarrollo
+        configuration.setAllowedOriginPatterns(Arrays.asList(
+            "http://localhost:*",
+            "http://127.0.0.1:*"
         ));
         
         // Métodos HTTP permitidos
@@ -82,10 +83,18 @@ public class SecurityConfig {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
+                .headers(headers -> headers
+                        .frameOptions().sameOrigin() // CRÍTICO: Permitir iframe para SockJS
+                )
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/**").permitAll()
-                        .requestMatchers("/chat/**").permitAll() // <- permitir websocket mientras 
+                        .requestMatchers("/chat/**").permitAll() // WebSocket endpoint para chat
+                        .requestMatchers("/notifications/**").permitAll() // WebSocket endpoint para notificaciones
+                        .requestMatchers("/static/**").permitAll() // Recursos estáticos
+                        .requestMatchers("/**/sockjs-node/**").permitAll() // SockJS resources
+                        .requestMatchers("/**/info").permitAll() // SockJS info endpoint
+                        .requestMatchers("/**/iframe.html").permitAll() // SockJS iframe
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
